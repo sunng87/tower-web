@@ -448,7 +448,7 @@ impl Resource {
         let fields = self.routes.iter().enumerate()
             .map(|(i, route)| {
                 let name = route_n(i);
-                let tys = (0..route.args().len())
+                let tys = route.extracted_args()
                     .map(|_| quote!((__tw::codegen::CallSite, bool),));
 
                 quote! { #name: (#(#tys)*) }
@@ -457,7 +457,7 @@ impl Resource {
         let init = self.routes.iter().enumerate()
             .map(|(i, route)| {
                 let name = route_n(i);
-                let init = route.args().iter()
+                let init = route.extracted_args()
                     .map(|arg| {
                         let new = arg.new_callsite();
                         let ty = &arg.ty;
@@ -481,17 +481,27 @@ impl Resource {
                 let name = route_n(route.index);
                 let verify = route.args().iter()
                     .map(|arg| {
-                        let index = arg.index;
+                        if arg.is_extracted() {
+                            let index = arg.extract_index();
 
-                        quote! {
-                            match (used_body, self.#name.#index.1) {
-                                (false, true) => {
+                            quote! {
+                                match (used_body, self.#name.#index.1) {
+                                    (false, true) => {
+                                        used_body = true;
+                                    }
+                                    (true, true) => {
+                                        panic!("unimplemented: multi body extract");
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        } else {
+                            quote! {
+                                if used_body {
+                                    panic!("unimplemented: multi body extract");
+                                } else {
                                     used_body = true;
                                 }
-                                (true, true) => {
-                                    panic!("unimplemented: multi body extract");
-                                }
-                                _ => {}
                             }
                         }
                     });

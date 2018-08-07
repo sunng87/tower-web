@@ -1,7 +1,13 @@
-use super::{Chain, Collect, FromBufStream, SizeHint};
+use super::{
+    Chain,
+    Collect,
+    ForEach,
+    FromBufStream,
+    SizeHint,
+};
 
 use bytes::Buf;
-use futures::Poll;
+use futures::{IntoFuture, Poll};
 
 pub trait BufStream {
     type Item: Buf;
@@ -28,4 +34,12 @@ pub trait BufStream {
     {
         Collect::new(self)
     }
+
+    fn for_each<F, U>(self, f: F) -> ForEach<Self, F, U>
+        where F: FnMut(Self::Item) -> U,
+              U: IntoFuture<Item=(), Error = Self::Error>,
+              Self: Sized
+    {
+        ForEach::new(self, f)
+}
 }

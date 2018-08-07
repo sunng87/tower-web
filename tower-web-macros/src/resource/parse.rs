@@ -72,72 +72,144 @@ impl syn::fold::Fold for ImplWeb {
     }
 
     fn fold_impl_item_method(&mut self, mut item: syn::ImplItemMethod) -> syn::ImplItemMethod {
-        use syn::ReturnType;
+        use syn::{ReturnType, GenericParam};
 
-        let mut attributes = Attributes::new();
+        {
+            let mut attributes = Attributes::new();
 
-        item.attrs.retain(|attr| !attributes.process(attr));
+            item.attrs.retain(|attr| !attributes.process(attr));
 
-        if attributes.is_empty() {
-            // Not a web route, do no further processing.
-            return item;
-        }
+            if attributes.is_empty() {
+                // Not a web route, do no further processing.
+                return item;
+            }
 
-        // Get the method name
-        let ident = item.sig.ident.clone();
+            // Get the method name
+            let ident = item.sig.ident.clone();
 
-        // Get the return type
-        let ret = match item.sig.decl.output {
-            ReturnType::Type(_, ref ty) => (**ty).clone(),
-            ReturnType::Default => syn::parse_str("()").unwrap(),
-        };
+            // Get the return type
+            let ret = match item.sig.decl.output {
+                ReturnType::Type(_, ref ty) => (**ty).clone(),
+                ReturnType::Default => syn::parse_str("()").unwrap(),
+            };
 
-        let mut args = vec![];
+            // Check the generics
+            let mut generic = None;
 
-        // Process the args
-        for arg in item.sig.decl.inputs.iter().skip(1) {
-            use syn::{FnArg, Pat};
+            let generics = &item.sig.decl.generics;
 
-            match arg {
-                FnArg::Captured(arg) => {
-                    let index = args.len();
-                    match arg.pat {
-                        Pat::Ident(ref ident) => {
-                            // Convert the identifier to a string
-                            let ident = ident.ident.to_string();
+            if generics.params.len() > 0 {
+                if generics.params.len() > 1 {
+                    panic!("impl_web methods can have at most one generic");
+                }
 
-                            // Check if the identifier matches any parameters
-                            let param = attributes.path_params.iter()
-                                .position(|param| param == &ident);
-
-                            args.push(Arg::new(index, ident, param, arg.ty.clone()));
-                        }
-                        _ => {
-                            // In this case, we should proceed without
-                            // generating a call site as we cannot infer enough
-                            // information about the argument.
-                            args.push(Arg::ty_only(index, arg.ty.clone()));
-                        }
+                match generics.params[0] {
+                    GenericParam::Type(ref param) => {
+                        generic = Some(&param.ident);
+                    }
+                    ref param => {
+                        panic!("unexpected generic param type; {:?}", param);
                     }
                 }
-                _ => panic!("unexpected fn argument type = {:?}", arg),
+            }
+
+            let mut args = vec![];
+            let mut extract_index = 0;
+
+            // Process the args
+            for arg in item.sig.decl.inputs.iter().skip(1) {
+                use syn::{FnArg, Pat};
+
+                match arg {
+                    FnArg::Captured(arg) => {
+                        let index = args.len();
+
+                        let stream_request_body = if generic.is_some() {
+                            if generic == maybe_generic(&arg.ty) {
+                                true
+                            } else {
+                                false
+                            }
+                        } else {
+                            false
+                        };
+
+                        if stream_request_body {
+                            args.push(Arg::request_stream(
+                                    index,
+                                    arg.ty.clone()));
+                        } else {
+                            match arg.pat {
+                                Pat::Ident(ref ident) => {
+                                    // Convert the identifier to a string
+                                    let ident = ident.ident.to_string();
+
+                                    // Check if the identifier matches any parameters
+                                    let param = attributes.path_params.iter()
+                                        .position(|param| param == &ident);
+
+                                    args.push(Arg::new(
+                                            index,
+                                            extract_index,
+                                            ident,
+                                            param,
+                                            arg.ty.clone()));
+                                }
+                                _ => {
+                                    // In this case, we should proceed without
+                                    // generating a call site as we cannot infer enough
+                                    // information about the argument.
+                                    args.push(Arg::ty_only(
+                                            index,
+                                            extract_index,
+                                            arg.ty.clone()));
+                                }
+                            }
+
+                            extract_index += 1;
+                        }
+                    }
+                    _ => panic!("unexpected fn argument type = {:?}", arg),
+                }
+            }
+
+            if attributes.is_route() {
+                let index = self.resource().routes.len();
+                let sig = Signature::new(ident, ret, args);
+                let route = Route::new(index, sig, attributes);
+
+                self.resource().routes.push(route);
+            } else {
+                let index = self.resource().catches.len();
+                let sig = Signature::new(ident, ret, args);
+                let catch = Catch::new(index, sig, attributes);
+
+                self.resource().catches.push(catch);
             }
         }
 
-        if attributes.is_route() {
-            let index = self.resource().routes.len();
-            let sig = Signature::new(ident, ret, args);
-            let route = Route::new(index, sig, attributes);
-
-            self.resource().routes.push(route);
-        } else {
-            let index = self.resource().catches.len();
-            let sig = Signature::new(ident, ret, args);
-            let catch = Catch::new(index, sig, attributes);
-
-            self.resource().catches.push(catch);
-        }
-
         item
+    }
+}
+
+/// If the type looks like it might be a generic, return the ident.
+fn maybe_generic(ty: &syn::Type) -> Option<&syn::Ident> {
+    use syn::Type::Path;
+
+    match *ty {
+        Path(ref ty) => {
+            if ty.path.segments.len() == 1 {
+                let segment = &ty.path.segments[0];
+
+                if !segment.arguments.is_empty() {
+                    return None;
+                }
+
+                Some(&segment.ident)
+            } else {
+                None
+            }
+        }
+        _ => None,
     }
 }

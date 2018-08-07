@@ -25,6 +25,10 @@ impl Route {
         self.sig.args()
     }
 
+    pub(crate) fn extracted_args(&self) -> impl Iterator<Item = &Arg> {
+        self.args().iter().filter(|arg| arg.is_extracted())
+    }
+
     /// Route builder fn call to add the route definition.
     pub fn build_route(&self, destination: TokenStream) -> TokenStream {
         let method = self.attributes.method_expr();

@@ -7,29 +7,34 @@ use proc_macro2::{Span, TokenStream};
 
 use std::cmp;
 
-pub(crate) struct TyTree<'a, T: 'a> {
-    data: &'a [T],
+pub(crate) struct TyTree<T> {
+    data: T,
 }
 
-impl<'a, T> TyTree<'a, T> {
-    pub fn new(data: &'a [T]) -> TyTree<'a, T> {
+impl<T> TyTree<T>
+where T: Iterator
+{
+    pub fn new<U>(data: U) -> TyTree<T>
+    where U: IntoIterator<IntoIter = T, Item = T::Item>
+    {
+        let data = data.into_iter();
         TyTree { data }
     }
 
-    pub fn map_reduce<F1, F2, R>(&self, map: F1, mut reduce: F2) -> R
-    where F1: FnMut(&T) -> R,
+    pub fn map_reduce<F1, F2, R>(self, map: F1, mut reduce: F2) -> R
+    where F1: FnMut(T::Item) -> R,
           F2: FnMut(&[R]) -> R,
           R: Clone,
     {
-        let mapped: Vec<_> = self.data.iter()
+        let mapped: Vec<_> = self.data
             .map(map)
             .collect();
 
         self::reduce(&mapped[..], &mut reduce)
     }
 
-    pub fn map_either<F>(&self, map: F) -> TokenStream
-    where F: FnMut(&T) -> TokenStream,
+    pub fn map_either<F>(self, map: F) -> TokenStream
+    where F: FnMut(T::Item) -> TokenStream,
     {
         self.map_reduce(
             map,
@@ -40,12 +45,18 @@ impl<'a, T> TyTree<'a, T> {
     }
 }
 
-impl<'a> TyTree<'a, Arg> {
-    pub fn extract_args_ty(&self) -> TokenStream {
+impl<'a, T> TyTree<T>
+where T: Iterator<Item = &'a Arg>
+{
+    pub fn extract_args_ty(self) -> TokenStream {
         self.map_reduce(
             |arg| {
-                let ty = &arg.ty;
-                quote! { <#ty as __tw::extract::Extract<B>>::Future }
+                if arg.is_extracted() {
+                    let ty = &arg.ty;
+                    quote! { <#ty as __tw::extract::Extract<B>>::Future }
+                } else {
+                    quote! { __tw::extract::Immediate<B> }
+                }
             },
             |tokens| {
                 let join_ty = join_ty(tokens.len());
@@ -53,27 +64,31 @@ impl<'a> TyTree<'a, Arg> {
             })
     }
 
-    pub fn extract_args(&self) -> TokenStream {
+    pub fn extract_args(self) -> TokenStream {
         use syn::{LitInt, IntSuffix};
 
         self.map_reduce(
             |arg| {
-                let ty = &arg.ty;
-                let index = LitInt::new(arg.index as u64, IntSuffix::None, Span::call_site());
+                if arg.is_extracted() {
+                    let ty = &arg.ty;
+                    let index = LitInt::new(arg.index as u64, IntSuffix::None, Span::call_site());
 
-                quote! {{
-                    let context = __tw::extract::Context::new(
-                        &route_match,
-                        &callsites.#index.0);
+                    quote! {{
+                        let context = __tw::extract::Context::new(
+                            &route_match,
+                            &callsites.#index.0);
 
-                    if callsites.#index.1 {
-                        <#ty as __tw::extract::Extract<B>>::extract_body(
-                            &context,
-                            body.take().unwrap())
-                    } else {
-                        <#ty as __tw::extract::Extract<B>>::extract(&context)
-                    }
-                }}
+                        if callsites.#index.1 {
+                            <#ty as __tw::extract::Extract<B>>::extract_body(
+                                &context,
+                                body.take().unwrap())
+                        } else {
+                            <#ty as __tw::extract::Extract<B>>::extract(&context)
+                        }
+                    }}
+                } else {
+                    quote! { __tw::extract::Immediate::new(body) }
+                }
             },
             |tokens| {
                 let join_ty = join_ty(tokens.len());
