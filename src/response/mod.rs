@@ -30,6 +30,7 @@ mod file;
 mod json;
 mod response;
 mod serde;
+mod serialize_context;
 mod serializer;
 mod str;
 
@@ -38,4 +39,5 @@ pub use self::context::Context;
 pub use self::default_serializer::DefaultSerializer;
 pub use self::response::Response;
 pub use self::serde::SerdeResponse;
+pub use self::serialize_context::{ResponseAttributes, SerializeContext};
 pub use self::serializer::Serializer;

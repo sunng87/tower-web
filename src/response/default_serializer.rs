@@ -54,15 +54,19 @@ impl Serializer for DefaultSerializer {
                 ContentType::new(self.plain.clone(), Some(format))
             }
             _ => {
-                let header = HeaderValue::from_str(name)
-                    .unwrap();
+                let header = HeaderValue::from_str(name).unwrap();
 
                 ContentType::new(header, None)
             }
         }
     }
 
-    fn serialize<T>(&self, value: &T, format: &Self::Format) -> Result<Bytes, ::Error>
+    fn serialize<T>(
+        &self,
+        value: &T,
+        format: &Self::Format,
+        context: &SerializeContext,
+    ) -> Result<Bytes, ::Error>
     where
         T: Serialize,
     {
