@@ -33,6 +33,7 @@ mod serde;
 mod serializer;
 mod serializer_context;
 mod str;
+mod model_and_view;
 
 pub use self::content_type::ContentType;
 pub use self::context::Context;
@@ -41,3 +42,4 @@ pub use self::response::Response;
 pub use self::serde::SerdeResponse;
 pub use self::serializer::Serializer;
 pub use self::serializer_context::SerializerContext;
+pub use self::model_and_view::ModelAndView;
