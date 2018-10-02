@@ -6,6 +6,7 @@ use bytes::Bytes;
 use http::header;
 use serde::Serialize;
 
+/// A generic view data as response
 #[derive(Debug)]
 pub struct ModelAndView<T: Serialize> {
     pub view: String,
@@ -13,6 +14,13 @@ pub struct ModelAndView<T: Serialize> {
 }
 
 const TEXT_HTML: &'static str = "text/html";
+
+impl<T: Serialize> ModelAndView<T> {
+    /// Create a ModelAndBView data.
+    pub fn new(model: T, view: String) -> ModelAndView<T> {
+        ModelAndView { view, model }
+    }
+}
 
 impl<T: Serialize> Response for ModelAndView<T> {
     type Buf = <Self::Body as BufStream>::Item;
@@ -27,13 +35,15 @@ impl<T: Serialize> Response for ModelAndView<T> {
             .map(|header| header.clone())
             .unwrap_or_else(|| header::HeaderValue::from_static(TEXT_HTML));
 
-        // TODO: render the model into view
-        // TODO: get view provider from context
+        let serialize_context = context.serializer_context();
+        let render_result = context
+            .serialize(&self.model, content_type, serialize_context)
+            .unwrap();
 
         http::Response::builder()
             .status(200)
             .header(header::CONTENT_TYPE, content_type)
-            .body(error::Map::new(Bytes::from("RENDER_RESULT_HERE")))
+            .body(error::Map::new(render_result))
             .unwrap()
     }
 }
