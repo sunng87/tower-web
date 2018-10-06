@@ -9,8 +9,8 @@ use serde::Serialize;
 /// A generic view data as response
 #[derive(Debug)]
 pub struct ModelAndView<T: Serialize> {
-    pub view: String,
-    pub model: T,
+    view: String,
+    model: T,
 }
 
 const TEXT_HTML: &'static str = "text/html";
@@ -26,7 +26,7 @@ impl<T: Serialize> Response for ModelAndView<T> {
     type Buf = <Self::Body as BufStream>::Item;
     type Body = error::Map<Bytes>;
 
-    fn into_http<S>(self, context: &Context<S>) -> http::Response<Self::Body>
+    fn into_http<S>(self, context: &Context<S>) -> Result<http::Response<Self::Body>, ::Error>
     where
         S: Serializer,
     {
@@ -37,13 +37,15 @@ impl<T: Serialize> Response for ModelAndView<T> {
 
         let serialize_context = context.serializer_context();
         let render_result = context
-            .serialize(&self.model, content_type, serialize_context)
+            .serialize(&self.model, &serialize_context)
             .unwrap();
 
-        http::Response::builder()
+        let response = http::Response::builder()
             .status(200)
             .header(header::CONTENT_TYPE, content_type)
             .body(error::Map::new(render_result))
-            .unwrap()
+            .unwrap();
+
+        Ok(response)
     }
 }
